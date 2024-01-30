@@ -2986,32 +2986,46 @@ int clusterProcessPacket(clusterLink *link) {
             } else {
                 /* Node is a slave. */
                 clusterNode *master = clusterLookupNode(hdr->slaveof, CLUSTER_NAMELEN);
+                /*
+                 * In a failover scenario, where the sender becomes a replica,
+                 * the master that becomes the target of replication can be a
+                 * replica of the sender. This situation can occur due to packet
+                 * delays in the new master during failover. In this case, the
+                 * sender and the master are in circular replication. Therefore,
+                 * to prevent circular replication, we ignore the action where the
+                 * sender becomes a replica. This issue naturally resolves if the
+                 * master is not a replica of the sender.
+                 *
+                 * This behavior may temporarily present the sender's state as inconsistent,
+                 * but it operates safely like a simple pong packet delay
+                 * */
+                if (!(master && master->slaveof == sender && sender->numslots > 0)) {
+                    if (clusterNodeIsMaster(sender)) {
+                        /* Master turned into a slave! Reconfigure the node. */
+                        clusterDelNodeSlots(sender);
+                        sender->flags &= ~(CLUSTER_NODE_MASTER|
+                                           CLUSTER_NODE_MIGRATE_TO);
+                        sender->flags |= CLUSTER_NODE_SLAVE;
 
-                if (clusterNodeIsMaster(sender)) {
-                    /* Master turned into a slave! Reconfigure the node. */
-                    clusterDelNodeSlots(sender);
-                    sender->flags &= ~(CLUSTER_NODE_MASTER|
-                                       CLUSTER_NODE_MIGRATE_TO);
-                    sender->flags |= CLUSTER_NODE_SLAVE;
+                        /* Update config and state. */
+                        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
+                                             CLUSTER_TODO_UPDATE_STATE);
+                    }
 
-                    /* Update config and state. */
-                    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG|
-                                         CLUSTER_TODO_UPDATE_STATE);
-                }
+                    /* Master node changed for this slave? */
+                    if (master && sender->slaveof != master) {
+                        if (sender->slaveof)
+                            clusterNodeRemoveSlave(sender->slaveof,sender);
+                        clusterNodeAddSlave(master,sender);
+                        sender->slaveof = master;
 
-                /* Master node changed for this slave? */
-                if (master && sender->slaveof != master) {
-                    if (sender->slaveof)
-                        clusterNodeRemoveSlave(sender->slaveof,sender);
-                    clusterNodeAddSlave(master,sender);
-                    sender->slaveof = master;
+                        /* Update the shard_id when a replica is connected to its
+                         * primary in the very first time. */
+                        updateShardId(sender, master->shard_id);
 
-                    /* Update the shard_id when a replica is connected to its
-                     * primary in the very first time. */
-                    updateShardId(sender, master->shard_id);
-
-                    /* Update config. */
-                    clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+                        /* Update config. */
+                        clusterDoBeforeSleep(CLUSTER_TODO_SAVE_CONFIG);
+                    }
                 }
             }
         }
