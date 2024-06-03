@@ -650,6 +650,12 @@ typedef enum {
 #define NOTIFY_NEW (1<<14)        /* n, new key notification */
 #define NOTIFY_ALL (NOTIFY_GENERIC | NOTIFY_STRING | NOTIFY_LIST | NOTIFY_SET | NOTIFY_HASH | NOTIFY_ZSET | NOTIFY_EXPIRED | NOTIFY_EVICTED | NOTIFY_STREAM | NOTIFY_MODULE) /* A flag */
 
+/* Cluster changes notification classes. Every class is associated with a
+ * character for configuration purposes. */
+#define NOTIFY_CLUSTER_REPLICATE (1<<0)    /* R */
+#define NOTIFY_CLUSTER_FAILOVER (1<<1)    /* F */
+#define NOTIFY_CLUSTER_ALL (NOTIFY_CLUSTER_REPLICATE | NOTIFY_CLUSTER_FAILOVER) /* A flag */
+
 /* Using the following macro you can run code inside serverCron() with the
  * specified period, specified in milliseconds.
  * The actual resolution depends on server.hz. */
@@ -1983,6 +1989,8 @@ struct redisServer {
     dict *pubsub_patterns;  /* A dict of pubsub_patterns */
     int notify_keyspace_events; /* Events to propagate via Pub/Sub. This is an
                                    xor of NOTIFY_... flags. */
+    int notify_cluster_events; /* Events to propagate via Pub/Sub. This is an
+                                   xor of NOTIFY_... flags. */
     kvstore *pubsubshard_channels;  /* Map shard channels in every slot to list of subscribed clients */
     unsigned int pubsub_clients; /* # of clients in Pub/Sub mode */
     unsigned int watching_clients; /* # of clients are wathcing keys */
@@ -3260,6 +3268,9 @@ dict *getClientPubSubShardChannels(client *c);
 void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid);
 int keyspaceEventsStringToFlags(char *classes);
 sds keyspaceEventsFlagsToString(int flags);
+void notifyClusterEvent(int type, char *event);
+int clusterEventsStringToFlags(char *classes);
+sds clusterEventsFlagsToString(int flags);
 
 /* Configuration */
 /* Configuration Flags */

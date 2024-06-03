@@ -7,8 +7,10 @@
  */
 
 #include "server.h"
+#include "cluster.h"
+#include "cluster_legacy.h"
 
-/* This file implements keyspace events notification via Pub/Sub and
+/* This file implements events notification via Pub/Sub and
  * described at https://redis.io/topics/notifications. */
 
 /* Turn a string representing notification classes into an integer
@@ -118,6 +120,65 @@ void notifyKeyspaceEvent(int type, const char *event, robj *key, int dbid) {
         chan = sdscatsds(chan, eventobj->ptr);
         chanobj = createObject(OBJ_STRING, chan);
         pubsubPublishMessage(chanobj, key, 0);
+        decrRefCount(chanobj);
+    }
+    decrRefCount(eventobj);
+}
+
+int clusterEventsStringToFlags(char *classes) {
+    char *p = classes;
+    int c, flags = 0;
+
+    while((c = *p++) != '\0') {
+        switch(c) {
+            case 'A': flags |= NOTIFY_CLUSTER_ALL; break;
+            case 'F': flags |= NOTIFY_CLUSTER_FAILOVER; break;
+            case 'R': flags |= NOTIFY_CLUSTER_REPLICATE; break;
+            default: return -1;
+        }
+    }
+    return flags;
+}
+
+sds clusterEventsFlagsToString(int flags) {
+    sds res;
+
+    res = sdsempty();
+    if ((flags & NOTIFY_CLUSTER_ALL) == NOTIFY_CLUSTER_ALL) res = sdscatlen(res,"A",1);
+    else if (flags & NOTIFY_CLUSTER_FAILOVER) res = sdscatlen(res,"F",1);
+    else if (flags & NOTIFY_CLUSTER_REPLICATE) res = sdscatlen(res,"R",1);
+    return res;
+}
+
+/* The API provided to the rest of the Redis core is a simple function:
+ *
+ * notifyClusterEvent(int type, char *event);
+ *
+ * 'type' is the notification class we define in `server.h`.
+ * 'event' is a C string representing the event name. */
+void notifyClusterEvent(int type, char *event) {
+    sds chan;
+    robj *chanobj, *eventobj;
+
+    /* If notifications for this class of events are off, return ASAP. */
+    if (!(server.notify_cluster_events & type)) return;
+
+    eventobj = createStringObject(event,strlen(event));
+
+    /* __cluster_event@<ip> <event>  notifications. */
+    if (server.notify_cluster_events) {
+        chan = sdsnewlen("__cluster_event@",16);
+        if(server.cluster_announce_human_nodename != NULL) {
+            chan = sdscatlen(chan, server.cluster_announce_human_nodename, strlen(server.cluster_announce_human_nodename));
+        } else {
+            chan = sdscatlen(chan, server.cluster->myself->ip, strlen(server.cluster->myself->ip));
+        }
+        chan = sdscatlen(chan, "__", 2);
+
+        chanobj = createObject(OBJ_STRING, chan);
+
+        // publish to all cluster
+        pubsubPublishMessageAndPropagateToCluster(chanobj, eventobj, 0);
         decrRefCount(chanobj);
     }
     decrRefCount(eventobj);
