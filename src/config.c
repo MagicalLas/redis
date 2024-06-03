@@ -1476,6 +1476,20 @@ void rewriteConfigNotifyKeyspaceEventsOption(standardConfig *config, const char 
     rewriteConfigRewriteLine(state,name,line,force);
 }
 
+/* Rewrite the notify-cluster-events option. */
+void rewriteConfigNotifyClusterEventsOption(standardConfig *config, const char *name, struct rewriteConfigState *state) {
+    UNUSED(config);
+    int force = server.notify_cluster_events != 0;
+    sds line, flags;
+
+    flags = clusterEventsFlagsToString(server.notify_cluster_events);
+    line = sdsnew(name);
+    line = sdscatlen(line, " ", 1);
+    line = sdscatrepr(line, flags, sdslen(flags));
+    sdsfree(flags);
+    rewriteConfigRewriteLine(state, name, line, force);
+}
+
 /* Rewrite the client-output-buffer-limit option. */
 void rewriteConfigClientOutputBufferLimitOption(standardConfig *config, const char *name, struct rewriteConfigState *state) {
     UNUSED(config);
@@ -2874,6 +2888,33 @@ static sds getConfigNotifyKeyspaceEventsOption(standardConfig *config) {
     return keyspaceEventsFlagsToString(server.notify_keyspace_events);
 }
 
+static int setConfigNotifyClusterEventsOption(standardConfig *config, sds *argv, int argc, const char **err) {
+    UNUSED(config);
+    if (argc != 1) {
+        *err = "wrong number of arguments";
+        return 0;
+    }
+
+//    if (!server.cluster_enabled) {
+//        *err = "notify-cluster-events is only allowed in cluster mode";
+//        return 0;
+//    }
+
+    int flags = clusterEventsStringToFlags(argv[0]);
+    if (flags == -1) {
+        *err = "Invalid event class character. Use 'FRA'.";
+        return 0;
+    }
+
+    server.notify_cluster_events = flags;
+    return 1;
+}
+
+static sds getConfigNotifyClusterEventsOption(standardConfig *config) {
+    UNUSED(config);
+    return clusterEventsFlagsToString(server.notify_cluster_events);
+}
+
 static int setConfigBindOption(standardConfig *config, sds* argv, int argc, const char **err) {
     UNUSED(config);
     int j;
@@ -3255,6 +3296,7 @@ standardConfig static_configs[] = {
     createSpecialConfig("client-output-buffer-limit", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigClientOutputBufferLimitOption, getConfigClientOutputBufferLimitOption, rewriteConfigClientOutputBufferLimitOption, NULL),
     createSpecialConfig("oom-score-adj-values", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigOOMScoreAdjValuesOption, getConfigOOMScoreAdjValuesOption, rewriteConfigOOMScoreAdjValuesOption, updateOOMScoreAdj),
     createSpecialConfig("notify-keyspace-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyKeyspaceEventsOption, getConfigNotifyKeyspaceEventsOption, rewriteConfigNotifyKeyspaceEventsOption, NULL),
+    createSpecialConfig("notify-cluster-events", NULL, MODIFIABLE_CONFIG, setConfigNotifyClusterEventsOption, getConfigNotifyClusterEventsOption, rewriteConfigNotifyClusterEventsOption, NULL),
     createSpecialConfig("bind", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigBindOption, getConfigBindOption, rewriteConfigBindOption, applyBind),
     createSpecialConfig("replicaof", "slaveof", IMMUTABLE_CONFIG | MULTI_ARG_CONFIG, setConfigReplicaOfOption, getConfigReplicaOfOption, rewriteConfigReplicaOfOption, NULL),
     createSpecialConfig("latency-tracking-info-percentiles", NULL, MODIFIABLE_CONFIG | MULTI_ARG_CONFIG, setConfigLatencyTrackingInfoPercentilesOutputOption, getConfigLatencyTrackingInfoPercentilesOutputOption, rewriteConfigLatencyTrackingInfoPercentilesOutputOption, NULL),

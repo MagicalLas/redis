@@ -4272,6 +4272,7 @@ void clusterHandleSlaveFailover(void) {
         /* Now that we have a scheduled election, broadcast our offset
          * to all the other slaves so that they'll updated their offsets
          * if our offset is better. */
+        notifyClusterEvent(NOTIFY_CLUSTER_FAILOVER, "Start of election with delay");
         clusterBroadcastPong(CLUSTER_BROADCAST_LOCAL_SLAVES);
         return;
     }
@@ -4339,6 +4340,9 @@ void clusterHandleSlaveFailover(void) {
 
         /* Take responsibility for the cluster slots. */
         clusterFailoverReplaceYourMaster();
+
+        /* 6) publish Topology updated event. */
+        notifyClusterEvent(NOTIFY_CLUSTER_FAILOVER, "failover election won");
     } else {
         clusterLogCantFailover(CLUSTER_CANT_FAILOVER_WAITING_VOTES);
     }
@@ -6314,6 +6318,7 @@ int clusterCommandSpecial(client *c) {
             serverLog(LL_NOTICE,"Taking over the master (user request).");
             clusterBumpConfigEpochWithoutConsensus();
             clusterFailoverReplaceYourMaster();
+            notifyClusterEvent(NOTIFY_CLUSTER_FAILOVER, "takeover master(user request)");
         } else if (force) {
             /* If this is a forced failover, we don't need to talk with our
              * master to agree about the offset. We just failover taking over
